@@ -1,0 +1,870 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Live AQI Predictor & City Intelligence</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- Chart.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#ecfdf5',
+              100: '#d1fae5',
+              500: '#10b981',
+              600: '#059669',
+              700: '#047857',
+              800: '#065f46',
+              900: '#064e3b',
+              950: '#022c22'
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    input[type=range] {
+      accent-color: #10b981;
+    }
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #0f172a;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #334155;
+      border-radius: 3px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #475569;
+    }
+    .gauge-circle {
+      transition: stroke-dashoffset 0.6s cubic-bezier(0.4, 0, 0.2, 1), stroke 0.4s ease;
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col font-sans antialiased selection:bg-brand-500 selection:text-white">
+
+  <!-- Top Header Bar -->
+  <header class="border-b border-slate-800 bg-slate-900/90 backdrop-blur sticky top-0 z-50">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+      <div class="flex items-center space-x-3">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-brand-600 to-cyan-500 flex items-center justify-center shadow-lg shadow-brand-500/20">
+          <i data-lucide="wind" class="w-6 h-6 text-white"></i>
+        </div>
+        <div>
+          <h1 class="text-lg font-bold tracking-tight text-white flex items-center gap-2">
+            Live AQI Predictor & City Intelligence
+            <span class="text-xs font-semibold px-2 py-0.5 rounded-full bg-brand-500/20 text-brand-400 border border-brand-500/30">Client-Server</span>
+          </h1>
+          <p class="text-xs text-slate-400 hidden sm:block">Thin Frontend connected to Python Flask Backend (Method A)</p>
+        </div>
+      </div>
+
+      <!-- Engine Status Badge -->
+      <div class="flex items-center space-x-3">
+        <div id="backend-status" class="flex items-center gap-2 text-xs px-2.5 py-1 rounded-full bg-slate-800 border border-slate-700 text-slate-300">
+          <span id="status-ping" class="w-2 h-2 rounded-full bg-amber-500 animate-ping"></span>
+          <span id="status-dot" class="w-2 h-2 rounded-full bg-amber-500 -ml-3.5"></span>
+          <span id="backend-text">Connecting to Python...</span>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Connection Alert Banner (Shown if Python backend is offline) -->
+  <div id="backend-offline-banner" class="hidden bg-rose-950/80 border-b border-rose-800 px-4 py-2.5 text-xs text-rose-200">
+    <div class="max-w-7xl mx-auto flex items-center justify-between">
+      <div class="flex items-center gap-2">
+        <i data-lucide="alert-circle" class="w-4 h-4 text-rose-400 shrink-0"></i>
+        <span><strong>Python Flask Backend is offline.</strong> To power predictions, please launch the server by double-clicking <strong>run_frontend.bat</strong> or running <code>py app.py</code>.</span>
+      </div>
+      <button onclick="checkBackendConnection()" class="px-2.5 py-1 bg-rose-800 hover:bg-rose-700 text-white rounded text-[11px] font-semibold transition">
+        Retry Connection
+      </button>
+    </div>
+  </div>
+
+  <!-- Main Content -->
+  <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+
+    <!-- ========================================================================= -->
+    <!-- 1. CITY SEARCH BAR & POPULAR HUBS (FRONT & CENTER) -->
+    <!-- ========================================================================= -->
+    <div class="bg-gradient-to-r from-slate-900 via-slate-900 to-slate-850 border border-slate-800 rounded-2xl p-5 shadow-xl space-y-4">
+      <div class="flex flex-col md:flex-row md:items-center justify-between gap-3">
+        <div>
+          <label for="city-search-input" class="text-xs font-bold uppercase tracking-wider text-brand-400 flex items-center gap-1.5">
+            <i data-lucide="search" class="w-4 h-4 text-brand-400"></i> Search Indian City or Place
+          </label>
+          <p class="text-xs text-slate-400 mt-0.5">Queries Python backend (`/api/cities`) to fetch station baseline data and live machine learning estimates.</p>
+        </div>
+        <div class="text-[11px] text-slate-500 hidden md:block">
+          Dataset: CPCB India (2015–2020)
+        </div>
+      </div>
+
+      <!-- Search Input with Dropdown -->
+      <div class="relative">
+        <div class="relative flex items-center">
+          <i data-lucide="map-pin" class="w-5 h-5 absolute left-3.5 text-slate-400"></i>
+          <input 
+            type="text" 
+            id="city-search-input" 
+            placeholder="Type city name (e.g. Delhi, Mumbai, Ahmedabad, Bengaluru, Chennai, Kolkata, Lucknow, Patna, Jaipur, Amritsar)..." 
+            oninput="handleCitySearch(this.value)"
+            onfocus="showCityDropdown()"
+            autocomplete="off"
+            class="w-full bg-slate-950 border border-slate-700/80 rounded-xl pl-11 pr-24 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 shadow-inner"
+          >
+          <button 
+            onclick="clearSearch()" 
+            id="clear-search-btn"
+            class="absolute right-3 text-xs px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg hidden transition"
+          >
+            Clear
+          </button>
+        </div>
+
+        <!-- Autocomplete Dropdown List -->
+        <div id="city-dropdown" class="absolute left-0 right-0 top-full mt-1.5 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl z-40 max-h-72 overflow-y-auto hidden divide-y divide-slate-800">
+          <!-- Filled dynamically from Python /api/cities -->
+        </div>
+      </div>
+
+      <!-- Quick Chips Bar for Major Cities -->
+      <div class="flex items-center gap-2 pt-1 flex-wrap">
+        <span class="text-[11px] text-slate-400 font-semibold flex items-center gap-1 mr-1">
+          <i data-lucide="sparkles" class="w-3 h-3 text-amber-400"></i> Popular Places:
+        </span>
+        <div class="flex flex-wrap gap-1.5" id="city-chips">
+          <button onclick="selectCity('Delhi')" class="text-xs px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-brand-500/20 hover:text-brand-300 text-slate-300 border border-slate-700 transition">📍 Delhi</button>
+          <button onclick="selectCity('Mumbai')" class="text-xs px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-brand-500/20 hover:text-brand-300 text-slate-300 border border-slate-700 transition">📍 Mumbai</button>
+          <button onclick="selectCity('Bengaluru')" class="text-xs px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-brand-500/20 hover:text-brand-300 text-slate-300 border border-slate-700 transition">📍 Bengaluru</button>
+          <button onclick="selectCity('Ahmedabad')" class="text-xs px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-brand-500/20 hover:text-brand-300 text-slate-300 border border-slate-700 transition">📍 Ahmedabad</button>
+          <button onclick="selectCity('Kolkata')" class="text-xs px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-brand-500/20 hover:text-brand-300 text-slate-300 border border-slate-700 transition">📍 Kolkata</button>
+          <button onclick="selectCity('Chennai')" class="text-xs px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-brand-500/20 hover:text-brand-300 text-slate-300 border border-slate-700 transition">📍 Chennai</button>
+          <button onclick="selectCity('Hyderabad')" class="text-xs px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-brand-500/20 hover:text-brand-300 text-slate-300 border border-slate-700 transition">📍 Hyderabad</button>
+          <button onclick="selectCity('Lucknow')" class="text-xs px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-brand-500/20 hover:text-brand-300 text-slate-300 border border-slate-700 transition">📍 Lucknow</button>
+          <button onclick="selectCity('Patna')" class="text-xs px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-brand-500/20 hover:text-brand-300 text-slate-300 border border-slate-700 transition">📍 Patna</button>
+          <button onclick="selectCity('Jaipur')" class="text-xs px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-brand-500/20 hover:text-brand-300 text-slate-300 border border-slate-700 transition">📍 Jaipur</button>
+          <button onclick="selectCity('Amritsar')" class="text-xs px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-brand-500/20 hover:text-brand-300 text-slate-300 border border-slate-700 transition">📍 Amritsar</button>
+          <button onclick="selectCity('Chandigarh')" class="text-xs px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-brand-500/20 hover:text-brand-300 text-slate-300 border border-slate-700 transition">📍 Chandigarh</button>
+          <button onclick="selectCity('Kochi')" class="text-xs px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-brand-500/20 hover:text-brand-300 text-slate-300 border border-slate-700 transition">📍 Kochi</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Active City Information Card -->
+    <div id="city-info-banner" class="bg-slate-900 border border-brand-500/40 rounded-2xl p-4 shadow-lg flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      <div class="flex items-start sm:items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-brand-500/20 border border-brand-500/30 flex items-center justify-center text-brand-400 shrink-0">
+          <i data-lucide="building-2" class="w-5 h-5"></i>
+        </div>
+        <div>
+          <div class="flex items-center gap-2 flex-wrap">
+            <h3 id="banner-city-name" class="text-base font-bold text-white">Delhi</h3>
+            <span id="banner-city-state" class="text-xs text-slate-400">National Capital Territory • Northern Plains</span>
+            <span id="banner-city-tag" class="text-[10px] px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30 font-semibold">Severe Winter Smog Hotspot</span>
+          </div>
+          <p id="banner-city-desc" class="text-xs text-slate-300 mt-0.5">Winter thermal inversion traps biomass smoke and heavy vehicular emissions in a dense stagnant smog layer.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========================================================================= -->
+    <!-- 2. RESULTS DASHBOARD (FRONT AND CENTER!) -->
+    <!-- ========================================================================= -->
+    <div class="grid grid-cols-1 md:grid-cols-12 gap-6">
+      
+      <!-- Center Main: AQI Gauge Card (5 cols) -->
+      <div class="md:col-span-5 bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl text-center relative flex flex-col justify-between">
+        <div>
+          <div class="flex justify-between items-center mb-2">
+            <span class="text-xs uppercase tracking-wider font-semibold text-slate-400">Predicted Air Quality Index</span>
+            <span id="dominant-pollutant-badge" class="text-xs px-2.5 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30">
+              Dominant: PM2.5 (368)
+            </span>
+          </div>
+
+          <!-- Circular Gauge -->
+          <div class="relative w-48 h-48 mx-auto my-3 flex items-center justify-center">
+            <svg class="w-full h-full transform -rotate-90" viewBox="0 0 100 100">
+              <circle cx="50" cy="50" r="42" stroke="currentColor" stroke-width="8" class="text-slate-800" fill="transparent"/>
+              <circle id="aqi-gauge-circle" cx="50" cy="50" r="42" stroke="#ef4444" stroke-width="8" stroke-dasharray="264" stroke-dashoffset="65" stroke-linecap="round" fill="transparent" class="gauge-circle"/>
+            </svg>
+            <div class="absolute inset-0 flex flex-col items-center justify-center text-center">
+              <span id="aqi-main-value" class="text-5xl font-black tracking-tight text-white font-mono">362.4</span>
+              <span id="aqi-category-name" class="text-xs font-bold px-2.5 py-0.5 rounded-full mt-1.5 bg-rose-500/20 text-rose-300">
+                Very Poor
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Health Advisory Box -->
+        <div id="aqi-advisory-box" class="bg-slate-950/80 border border-slate-800 rounded-xl p-3 text-xs text-slate-300 text-left mt-2">
+          <div class="flex items-start gap-2">
+            <i data-lucide="alert-triangle" class="w-4 h-4 text-rose-400 shrink-0 mt-0.5"></i>
+            <p id="aqi-advisory-text">Respiratory illness on prolonged exposure. Significant hazard to children and elderly.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right Panel: Regime Card & Model Comparison (7 cols) -->
+      <div class="md:col-span-7 space-y-4">
+        
+        <!-- Regime Identification Card -->
+        <div id="regime-card" class="bg-slate-900 border border-rose-500/40 rounded-2xl p-5 shadow-lg relative overflow-hidden transition-all duration-300">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-xs uppercase tracking-wider font-semibold text-slate-400 flex items-center gap-1.5">
+              <i data-lucide="compass" class="w-4 h-4 text-brand-400"></i> Discovered Pollution Regime
+            </span>
+            <span id="regime-confidence-badge" class="text-xs font-mono px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700 font-bold">
+              Confidence: 91.5%
+            </span>
+          </div>
+
+          <div class="flex items-center gap-3 my-2">
+            <div id="regime-icon-box" class="w-12 h-12 rounded-xl bg-rose-500/20 border border-rose-500/30 flex items-center justify-center text-rose-400 shrink-0">
+              <i id="regime-icon" data-lucide="alert-triangle" class="w-6 h-6"></i>
+            </div>
+            <div>
+              <h3 id="regime-title" class="text-lg font-bold text-rose-400">High Multi-Pollutant Regime</h3>
+              <p id="regime-desc" class="text-xs text-slate-300">Computed via Python StandardScaler & K-Means Centroid Distances</p>
+            </div>
+          </div>
+
+          <div class="mt-3 pt-2.5 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
+            <span>Distance to Low Regime: <strong id="dist-low-val" class="text-emerald-400 font-mono">4.12</strong></span>
+            <span>Distance to High Regime: <strong id="dist-high-val" class="text-rose-400 font-mono">1.25</strong></span>
+          </div>
+        </div>
+
+        <!-- Machine Learning Model Estimates -->
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-lg space-y-3">
+          <div class="flex items-center justify-between border-b border-slate-800 pb-2">
+            <h4 class="text-xs uppercase tracking-wider font-semibold text-slate-300 flex items-center gap-1.5">
+              <i data-lucide="git-commit" class="w-4 h-4 text-brand-400"></i> Python Model Estimates Comparison
+            </h4>
+            <span class="text-[10px] text-slate-400 font-mono">2019 Test RMSE</span>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+            <!-- Random Forest -->
+            <div class="bg-slate-950/70 p-2.5 rounded-xl border border-slate-800">
+              <div class="flex justify-between items-center text-xs mb-1">
+                <span class="font-bold text-slate-200">Random Forest</span>
+                <span class="text-[9px] px-1 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-mono">-1.58%</span>
+              </div>
+              <div class="text-[10px] text-slate-400 flex justify-between">Global: <span id="rf-global-val" class="font-mono text-slate-300">341.2</span></div>
+              <div class="text-[10px] text-brand-400 flex justify-between font-bold">Regime: <span id="rf-regime-val" class="font-mono text-brand-300">362.4</span></div>
+            </div>
+
+            <!-- XGBoost -->
+            <div class="bg-slate-950/70 p-2.5 rounded-xl border border-slate-800">
+              <div class="flex justify-between items-center text-xs mb-1">
+                <span class="font-bold text-slate-200">XGBoost</span>
+                <span class="text-[9px] px-1 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-mono">-0.55%</span>
+              </div>
+              <div class="text-[10px] text-slate-400 flex justify-between">Global: <span id="xgb-global-val" class="font-mono text-slate-300">344.8</span></div>
+              <div class="text-[10px] text-brand-400 flex justify-between font-bold">Regime: <span id="xgb-regime-val" class="font-mono text-brand-300">359.8</span></div>
+            </div>
+
+            <!-- AdaBoost -->
+            <div class="bg-slate-950/70 p-2.5 rounded-xl border border-slate-800">
+              <div class="flex justify-between items-center text-xs mb-1">
+                <span class="font-bold text-slate-200">AdaBoost</span>
+                <span class="text-[9px] px-1 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-mono">-0.78%</span>
+              </div>
+              <div class="text-[10px] text-slate-400 flex justify-between">Global: <span id="ada-global-val" class="font-mono text-slate-300">338.5</span></div>
+              <div class="text-[10px] text-brand-400 flex justify-between font-bold">Regime: <span id="ada-regime-val" class="font-mono text-brand-300">358.1</span></div>
+            </div>
+          </div>
+
+          <!-- Official CPCB Formula Reference -->
+          <div class="flex justify-between items-center px-3 py-2 bg-slate-950/60 rounded-xl text-xs border border-slate-800/80">
+            <span class="text-slate-400">Official Indian CPCB Standard Formula:</span>
+            <strong id="cpcb-formula-val" class="text-white font-mono text-sm">368.0</strong>
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+
+    <!-- Pollutant Sub-Index Breakdown Chart -->
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-lg">
+      <h3 class="text-xs uppercase tracking-wider font-semibold text-slate-400 mb-3 flex items-center gap-1.5">
+        <i data-lucide="bar-chart" class="w-4 h-4 text-brand-400"></i> Individual Pollutant Sub-Index Breakdown (CPCB Scale)
+      </h3>
+      <div class="h-36 w-full">
+        <canvas id="subindexChart"></canvas>
+      </div>
+    </div>
+
+    <!-- ========================================================================= -->
+    <!-- 3. COLLAPSED ADVANCED TUNING & CUSTOM SLIDERS TOGGLE -->
+    <!-- ========================================================================= -->
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl shadow-lg overflow-hidden transition-all duration-300">
+      
+      <!-- Accordion Header Button -->
+      <button 
+        onclick="toggleAdvancedSliders()" 
+        id="toggle-sliders-btn"
+        class="w-full px-5 py-4 flex items-center justify-between text-left hover:bg-slate-800/60 transition group focus:outline-none"
+      >
+        <div class="flex items-center gap-3">
+          <div class="w-8 h-8 rounded-lg bg-slate-800 group-hover:bg-brand-500/20 text-slate-300 group-hover:text-brand-400 flex items-center justify-center transition">
+            <i data-lucide="sliders" class="w-4 h-4"></i>
+          </div>
+          <div>
+            <span class="text-sm font-bold text-white flex items-center gap-2">
+              Advanced Tuning & Custom Sliders
+              <span class="text-[10px] font-normal px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700">12 Pollutants</span>
+            </span>
+            <p class="text-xs text-slate-400">Click to expand sliders and simulate custom emission changes or test "What-If" scenarios</p>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-2 text-xs text-brand-400 font-medium">
+          <span id="toggle-label-text">Show Sliders</span>
+          <i id="toggle-chevron" data-lucide="chevron-down" class="w-4 h-4 transition-transform duration-300"></i>
+        </div>
+      </button>
+
+      <!-- Collapsible Container (Hidden by default) -->
+      <div id="advanced-sliders-container" class="hidden border-t border-slate-800 p-5 bg-slate-950/60 space-y-5">
+        
+        <div class="flex items-center justify-between pb-2 border-b border-slate-800/80">
+          <span class="text-xs text-slate-400 font-medium">Changing any value sends an HTTP POST request to Python (`/api/predict`) to recompute predictions.</span>
+          <button onclick="resetToDefaults()" class="text-xs px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 transition">Reset to City</button>
+        </div>
+
+        <!-- 12 Pollutants Grid -->
+        <div class="space-y-4">
+          
+          <!-- Category 1: Particulates -->
+          <div>
+            <span class="text-xs font-semibold text-emerald-400 uppercase tracking-wider flex items-center gap-1 mb-2">
+              <i data-lucide="circle-dot" class="w-3 h-3"></i> Particulate Matter (PM)
+            </span>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div class="bg-slate-900/90 p-3 rounded-xl border border-slate-800">
+                <div class="flex justify-between items-center mb-1">
+                  <label class="text-xs font-medium text-slate-300">PM2.5 <span class="text-slate-500">(µg/m³)</span></label>
+                  <input type="number" id="num-PM2.5" min="0" max="600" step="1" value="215" oninput="syncSlider('PM2.5', this.value)" class="w-16 bg-slate-800 border border-slate-700 text-xs font-mono text-right rounded px-1.5 py-0.5 text-white">
+                </div>
+                <input type="range" id="range-PM2.5" min="0" max="500" step="1" value="215" oninput="syncNumber('PM2.5', this.value)" class="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer">
+                <div class="flex justify-between text-[10px] text-slate-500 mt-1"><span>0</span><span>Good &lt;30</span><span>Severe &gt;250</span></div>
+              </div>
+
+              <div class="bg-slate-900/90 p-3 rounded-xl border border-slate-800">
+                <div class="flex justify-between items-center mb-1">
+                  <label class="text-xs font-medium text-slate-300">PM10 <span class="text-slate-500">(µg/m³)</span></label>
+                  <input type="number" id="num-PM10" min="0" max="800" step="1" value="345" oninput="syncSlider('PM10', this.value)" class="w-16 bg-slate-800 border border-slate-700 text-xs font-mono text-right rounded px-1.5 py-0.5 text-white">
+                </div>
+                <input type="range" id="range-PM10" min="0" max="600" step="1" value="345" oninput="syncNumber('PM10', this.value)" class="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer">
+                <div class="flex justify-between text-[10px] text-slate-500 mt-1"><span>0</span><span>Good &lt;50</span><span>Severe &gt;430</span></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Category 2: Nitrogen Oxides -->
+          <div>
+            <span class="text-xs font-semibold text-cyan-400 uppercase tracking-wider flex items-center gap-1 mb-2">
+              <i data-lucide="circle-dot" class="w-3 h-3"></i> Nitrogen Oxides (Vehicular & Combustion)
+            </span>
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div class="bg-slate-900/90 p-2.5 rounded-xl border border-slate-800">
+                <div class="flex justify-between items-center mb-1">
+                  <label class="text-xs font-medium text-slate-300">NO</label>
+                  <input type="number" id="num-NO" min="0" max="250" step="0.5" value="52" oninput="syncSlider('NO', this.value)" class="w-14 bg-slate-800 border border-slate-700 text-xs font-mono text-right rounded px-1 py-0.5 text-white">
+                </div>
+                <input type="range" id="range-NO" min="0" max="150" step="1" value="52" oninput="syncNumber('NO', this.value)" class="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer">
+              </div>
+
+              <div class="bg-slate-900/90 p-2.5 rounded-xl border border-slate-800">
+                <div class="flex justify-between items-center mb-1">
+                  <label class="text-xs font-medium text-slate-300">NO2</label>
+                  <input type="number" id="num-NO2" min="0" max="300" step="0.5" value="74" oninput="syncSlider('NO2', this.value)" class="w-14 bg-slate-800 border border-slate-700 text-xs font-mono text-right rounded px-1 py-0.5 text-white">
+                </div>
+                <input type="range" id="range-NO2" min="0" max="200" step="1" value="74" oninput="syncNumber('NO2', this.value)" class="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer">
+              </div>
+
+              <div class="bg-slate-900/90 p-2.5 rounded-xl border border-slate-800">
+                <div class="flex justify-between items-center mb-1">
+                  <label class="text-xs font-medium text-slate-300">NOx</label>
+                  <input type="number" id="num-NOx" min="0" max="350" step="0.5" value="95" oninput="syncSlider('NOx', this.value)" class="w-14 bg-slate-800 border border-slate-700 text-xs font-mono text-right rounded px-1 py-0.5 text-white">
+                </div>
+                <input type="range" id="range-NOx" min="0" max="250" step="1" value="95" oninput="syncNumber('NOx', this.value)" class="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer">
+              </div>
+            </div>
+          </div>
+
+          <!-- Category 3: Trace Gases -->
+          <div>
+            <span class="text-xs font-semibold text-amber-400 uppercase tracking-wider flex items-center gap-1 mb-2">
+              <i data-lucide="circle-dot" class="w-3 h-3"></i> Trace & Reactive Gases
+            </span>
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div class="bg-slate-900/90 p-2.5 rounded-xl border border-slate-800">
+                <div class="flex justify-between items-center mb-1">
+                  <label class="text-xs font-medium text-slate-300">CO <span class="text-[10px] text-slate-500">(mg/m³)</span></label>
+                  <input type="number" id="num-CO" min="0" max="40" step="0.1" value="2.8" oninput="syncSlider('CO', this.value)" class="w-12 bg-slate-800 border border-slate-700 text-xs font-mono text-right rounded px-1 py-0.5 text-white">
+                </div>
+                <input type="range" id="range-CO" min="0" max="25" step="0.1" value="2.8" oninput="syncNumber('CO', this.value)" class="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer">
+              </div>
+
+              <div class="bg-slate-900/90 p-2.5 rounded-xl border border-slate-800">
+                <div class="flex justify-between items-center mb-1">
+                  <label class="text-xs font-medium text-slate-300">SO2</label>
+                  <input type="number" id="num-SO2" min="0" max="200" step="0.5" value="18.5" oninput="syncSlider('SO2', this.value)" class="w-12 bg-slate-800 border border-slate-700 text-xs font-mono text-right rounded px-1 py-0.5 text-white">
+                </div>
+                <input type="range" id="range-SO2" min="0" max="150" step="1" value="18.5" oninput="syncNumber('SO2', this.value)" class="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer">
+              </div>
+
+              <div class="bg-slate-900/90 p-2.5 rounded-xl border border-slate-800">
+                <div class="flex justify-between items-center mb-1">
+                  <label class="text-xs font-medium text-slate-300">O3</label>
+                  <input type="number" id="num-O3" min="0" max="300" step="0.5" value="45" oninput="syncSlider('O3', this.value)" class="w-12 bg-slate-800 border border-slate-700 text-xs font-mono text-right rounded px-1 py-0.5 text-white">
+                </div>
+                <input type="range" id="range-O3" min="0" max="200" step="1" value="45" oninput="syncNumber('O3', this.value)" class="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer">
+              </div>
+
+              <div class="bg-slate-900/90 p-2.5 rounded-xl border border-slate-800">
+                <div class="flex justify-between items-center mb-1">
+                  <label class="text-xs font-medium text-slate-300">NH3</label>
+                  <input type="number" id="num-NH3" min="0" max="300" step="0.5" value="48" oninput="syncSlider('NH3', this.value)" class="w-12 bg-slate-800 border border-slate-700 text-xs font-mono text-right rounded px-1 py-0.5 text-white">
+                </div>
+                <input type="range" id="range-NH3" min="0" max="200" step="1" value="48" oninput="syncNumber('NH3', this.value)" class="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer">
+              </div>
+            </div>
+          </div>
+
+          <!-- Category 4: Volatiles -->
+          <div>
+            <span class="text-xs font-semibold text-purple-400 uppercase tracking-wider flex items-center gap-1 mb-2">
+              <i data-lucide="circle-dot" class="w-3 h-3"></i> Volatile Organics (Hydrocarbons & Solvents)
+            </span>
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div class="bg-slate-900/90 p-2.5 rounded-xl border border-slate-800">
+                <div class="flex justify-between items-center mb-1">
+                  <label class="text-xs font-medium text-slate-300">Benzene</label>
+                  <input type="number" id="num-Benzene" min="0" max="150" step="0.1" value="6.2" oninput="syncSlider('Benzene', this.value)" class="w-14 bg-slate-800 border border-slate-700 text-xs font-mono text-right rounded px-1 py-0.5 text-white">
+                </div>
+                <input type="range" id="range-Benzene" min="0" max="100" step="0.1" value="6.2" oninput="syncNumber('Benzene', this.value)" class="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer">
+              </div>
+
+              <div class="bg-slate-900/90 p-2.5 rounded-xl border border-slate-800">
+                <div class="flex justify-between items-center mb-1">
+                  <label class="text-xs font-medium text-slate-300">Toluene</label>
+                  <input type="number" id="num-Toluene" min="0" max="200" step="0.1" value="18.5" oninput="syncSlider('Toluene', this.value)" class="w-14 bg-slate-800 border border-slate-700 text-xs font-mono text-right rounded px-1 py-0.5 text-white">
+                </div>
+                <input type="range" id="range-Toluene" min="0" max="120" step="0.1" value="18.5" oninput="syncNumber('Toluene', this.value)" class="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer">
+              </div>
+
+              <div class="bg-slate-900/90 p-2.5 rounded-xl border border-slate-800">
+                <div class="flex justify-between items-center mb-1">
+                  <label class="text-xs font-medium text-slate-300">Xylene</label>
+                  <input type="number" id="num-Xylene" min="0" max="100" step="0.1" value="4.8" oninput="syncSlider('Xylene', this.value)" class="w-14 bg-slate-800 border border-slate-700 text-xs font-mono text-right rounded px-1 py-0.5 text-white">
+                </div>
+                <input type="range" id="range-Xylene" min="0" max="80" step="0.1" value="4.8" oninput="syncNumber('Xylene', this.value)" class="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer">
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+      </div>
+
+    </div>
+
+  </main>
+
+  <!-- Footer -->
+  <footer class="border-t border-slate-800 bg-slate-900/60 py-4 mt-8">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between text-xs text-slate-500 gap-2">
+      <div>Method A: Decoupled Client-Server Architecture</div>
+      <div>Frontend (HTML5/Tailwind) &harr; Python Flask REST API (`app.py`)</div>
+    </div>
+  </footer>
+
+  <!-- ========================================================================= -->
+  <!-- PURE CLIENT API BRIDGE (METHOD A ONLY - NO HARDCODED ML FORMULAS) -->
+  <!-- ========================================================================= -->
+  <script>
+    // Configuration: Base API URL (supports both http://localhost:5000 and direct file:///)
+    const API_BASE = window.location.origin.startsWith("http") ? window.location.origin : "http://127.0.0.1:5000";
+    const POLLUTANTS = ["PM2.5", "PM10", "NO", "NO2", "NOx", "NH3", "CO", "SO2", "O3", "Benzene", "Toluene", "Xylene"];
+
+    let cachedCities = [];
+    let activeCity = "Delhi";
+    let isSlidersExpanded = false;
+    let subindexChart = null;
+    let debounceTimer = null;
+
+    // -------------------------------------------------------------
+    // Toggle Advanced Sliders Accordion
+    // -------------------------------------------------------------
+    function toggleAdvancedSliders() {
+      const container = document.getElementById("advanced-sliders-container");
+      const labelText = document.getElementById("toggle-label-text");
+      const chevron = document.getElementById("toggle-chevron");
+
+      isSlidersExpanded = !isSlidersExpanded;
+      if (isSlidersExpanded) {
+        container.classList.remove("hidden");
+        labelText.textContent = "Hide Sliders";
+        chevron.style.transform = "rotate(180deg)";
+      } else {
+        container.classList.add("hidden");
+        labelText.textContent = "Show Sliders";
+        chevron.style.transform = "rotate(0deg)";
+      }
+    }
+
+    // -------------------------------------------------------------
+    // API Call 1: Check Python Backend Status
+    // -------------------------------------------------------------
+    async function checkBackendConnection() {
+      const statusText = document.getElementById("backend-text");
+      const statusBadge = document.getElementById("backend-status");
+      const statusDot = document.getElementById("status-dot");
+      const statusPing = document.getElementById("status-ping");
+      const offlineBanner = document.getElementById("backend-offline-banner");
+
+      try {
+        const res = await fetch(`${API_BASE}/api/cities`);
+        if (res.ok) {
+          cachedCities = await res.json();
+          statusText.textContent = "Engine: Python Connected";
+          statusBadge.className = "flex items-center gap-2 text-xs px-2.5 py-1 rounded-full bg-emerald-950/60 border border-emerald-800 text-emerald-300";
+          statusDot.className = "w-2 h-2 rounded-full bg-emerald-500 -ml-3.5";
+          statusPing.className = "w-2 h-2 rounded-full bg-emerald-500 animate-ping";
+          offlineBanner.classList.add("hidden");
+          return true;
+        }
+      } catch (err) {
+        console.warn("Python backend connection failed:", err);
+      }
+
+      statusText.textContent = "Engine: Python Offline";
+      statusBadge.className = "flex items-center gap-2 text-xs px-2.5 py-1 rounded-full bg-rose-950/60 border border-rose-800 text-rose-300";
+      statusDot.className = "w-2 h-2 rounded-full bg-rose-500 -ml-3.5";
+      statusPing.className = "w-2 h-2 rounded-full bg-rose-500 animate-ping";
+      offlineBanner.classList.remove("hidden");
+      return false;
+    }
+
+    // -------------------------------------------------------------
+    // API Call 2: Select a City & Fetch Details from Python (`GET /api/city/<name>`)
+    // -------------------------------------------------------------
+    async function selectCity(cityName) {
+      activeCity = cityName;
+      document.getElementById("city-search-input").value = cityName;
+      document.getElementById("city-dropdown").classList.add("hidden");
+      document.getElementById("clear-search-btn").classList.remove("hidden");
+
+      try {
+        const res = await fetch(`${API_BASE}/api/city/${encodeURIComponent(cityName)}`);
+        if (res.ok) {
+          const data = await res.json();
+          const meta = data.city_metadata;
+
+          // 1. Update City Banner
+          document.getElementById("banner-city-name").textContent = meta.city;
+          document.getElementById("banner-city-state").textContent = `${meta.state} • ${meta.region}`;
+          document.getElementById("banner-city-tag").textContent = meta.tag;
+          document.getElementById("banner-city-desc").textContent = meta.desc;
+
+          const tagEl = document.getElementById("banner-city-tag");
+          if (meta.tag.includes("Severe") || meta.tag.includes("VOC") || meta.tag.includes("Smog")) {
+            tagEl.className = "text-[10px] px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30 font-semibold";
+          } else {
+            tagEl.className = "text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold";
+          }
+
+          // 2. Set input values
+          Object.entries(meta.pollutants).forEach(([p, val]) => {
+            const num = document.getElementById(`num-${p}`);
+            const range = document.getElementById(`range-${p}`);
+            if (num) num.value = val;
+            if (range) range.value = val;
+          });
+
+          // 3. Render Python's ML predictions
+          renderPredictionResults(data.regime, data.prediction);
+        }
+      } catch (err) {
+        console.error("Error fetching city details:", err);
+      }
+    }
+
+    // -------------------------------------------------------------
+    // API Call 3: Send Pollutants to Python (`POST /api/predict`)
+    // -------------------------------------------------------------
+    async function triggerCalculation() {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(async () => {
+        const inputs = {};
+        POLLUTANTS.forEach(p => {
+          const el = document.getElementById(`num-${p}`);
+          inputs[p] = el ? parseFloat(el.value) || 0 : 0;
+        });
+
+        try {
+          const res = await fetch(`${API_BASE}/api/predict`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(inputs)
+          });
+          if (res.ok) {
+            const data = await res.json();
+            renderPredictionResults(data.regime, data.prediction);
+          }
+        } catch (err) {
+          console.error("Error communicating with Python prediction engine:", err);
+        }
+      }, 150); // Debounce by 150ms for smooth slider dragging
+    }
+
+    // -------------------------------------------------------------
+    // UI Renderer: Updates DOM Elements with Python Output
+    // -------------------------------------------------------------
+    function renderPredictionResults(regime, pred) {
+      // 1. Regime Card
+      const regimeCard = document.getElementById("regime-card");
+      const regimeTitle = document.getElementById("regime-title");
+      const regimeDesc = document.getElementById("regime-desc");
+      const confBadge = document.getElementById("regime-confidence-badge");
+      const distLow = document.getElementById("dist-low-val");
+      const distHigh = document.getElementById("dist-high-val");
+      const iconBox = document.getElementById("regime-icon-box");
+      const regimeIcon = document.getElementById("regime-icon");
+
+      distLow.textContent = regime.dist_low;
+      distHigh.textContent = regime.dist_high;
+      confBadge.textContent = `Confidence: ${regime.confidence}%`;
+
+      if (regime.regime_name === "High Multi-Pollutant") {
+        regimeTitle.textContent = "High Multi-Pollutant Regime";
+        regimeTitle.className = "text-lg font-bold text-rose-400";
+        regimeDesc.textContent = "Severe pollutant co-occurrence • High PM + NO2 + VOC amplification active";
+        regimeCard.className = "bg-slate-900 border border-rose-500/40 rounded-2xl p-5 shadow-lg relative overflow-hidden transition-all duration-300";
+        iconBox.className = "w-12 h-12 rounded-xl bg-rose-500/20 border border-rose-500/30 flex items-center justify-center text-rose-400 shrink-0";
+        regimeIcon.setAttribute("data-lucide", "alert-triangle");
+      } else {
+        regimeTitle.textContent = "Lower Pollution Regime";
+        regimeTitle.className = "text-lg font-bold text-emerald-400";
+        regimeDesc.textContent = "Moderate/Normal air chemistry • Single primary sub-index dominance";
+        regimeCard.className = "bg-slate-900 border border-emerald-500/40 rounded-2xl p-5 shadow-lg relative overflow-hidden transition-all duration-300";
+        iconBox.className = "w-12 h-12 rounded-xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0";
+        regimeIcon.setAttribute("data-lucide", "shield-check");
+      }
+      lucide.createIcons();
+
+      // 2. AQI Gauge Display
+      const aqiVal = document.getElementById("aqi-main-value");
+      const aqiCatName = document.getElementById("aqi-category-name");
+      const aqiAdvText = document.getElementById("aqi-advisory-text");
+      const domBadge = document.getElementById("dominant-pollutant-badge");
+      const gaugeCircle = document.getElementById("aqi-gauge-circle");
+
+      aqiVal.textContent = pred.primary_aqi;
+      aqiCatName.textContent = pred.category.name;
+      aqiCatName.style.backgroundColor = `${pred.category.color}25`;
+      aqiCatName.style.color = pred.category.color;
+      aqiAdvText.textContent = pred.category.advisory;
+      domBadge.textContent = `Dominant: ${pred.dominant_pollutant} (${pred.dominant_subindex})`;
+
+      const clamped = Math.min(500, Math.max(0, pred.primary_aqi));
+      const offset = 264 - (clamped / 500) * 264;
+      gaugeCircle.style.strokeDashoffset = offset;
+      gaugeCircle.style.stroke = pred.category.color;
+
+      // 3. Model Estimates Table
+      document.getElementById("rf-global-val").textContent = pred.models.random_forest.global;
+      document.getElementById("rf-regime-val").textContent = pred.models.random_forest.regime_specific;
+      document.getElementById("xgb-global-val").textContent = pred.models.xgboost.global;
+      document.getElementById("xgb-regime-val").textContent = pred.models.xgboost.regime_specific;
+      document.getElementById("ada-global-val").textContent = pred.models.adaboost.global;
+      document.getElementById("ada-regime-val").textContent = pred.models.adaboost.regime_specific;
+      document.getElementById("cpcb-formula-val").textContent = pred.cpcb_aqi;
+
+      // 4. Update Sub-Index Chart
+      updateSubindexChart(pred.sub_indices);
+    }
+
+    // -------------------------------------------------------------
+    // City Search & Autocomplete
+    // -------------------------------------------------------------
+    function handleCitySearch(val) {
+      const dropdown = document.getElementById("city-dropdown");
+      const clearBtn = document.getElementById("clear-search-btn");
+      const q = val.trim().toLowerCase();
+
+      if (!q) {
+        clearBtn.classList.add("hidden");
+        dropdown.classList.add("hidden");
+        return;
+      }
+      clearBtn.classList.remove("hidden");
+
+      const matches = cachedCities.filter(item => 
+        item.city.toLowerCase().includes(q) || 
+        item.state.toLowerCase().includes(q) || 
+        item.region.toLowerCase().includes(q)
+      );
+
+      if (matches.length === 0) {
+        dropdown.innerHTML = `
+          <div class="p-3 text-xs text-slate-400">
+            No specific station found for "<strong>${val}</strong>". Try clicking any popular place below!
+          </div>
+        `;
+        dropdown.classList.remove("hidden");
+        return;
+      }
+
+      dropdown.innerHTML = matches.map(item => `
+        <div onclick="selectCity('${item.city}')" class="p-3 hover:bg-slate-800/80 cursor-pointer flex items-center justify-between text-xs transition">
+          <div>
+            <div class="font-bold text-white flex items-center gap-1.5">
+              <span>📍 ${item.city}</span>
+              <span class="text-[10px] text-slate-400">(${item.state})</span>
+            </div>
+            <p class="text-[11px] text-slate-400 mt-0.5">${item.desc.substring(0, 75)}...</p>
+          </div>
+          <span class="text-[10px] px-2 py-0.5 rounded-full ${item.tag.includes('Severe') || item.tag.includes('VOC') ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'}">
+            ${item.tag}
+          </span>
+        </div>
+      `).join("");
+      dropdown.classList.remove("hidden");
+    }
+
+    function showCityDropdown() {
+      const input = document.getElementById("city-search-input");
+      if (input.value.trim()) {
+        handleCitySearch(input.value);
+      }
+    }
+
+    function clearSearch() {
+      const input = document.getElementById("city-search-input");
+      input.value = "";
+      document.getElementById("clear-search-btn").classList.add("hidden");
+      document.getElementById("city-dropdown").classList.add("hidden");
+    }
+
+    document.addEventListener("click", (e) => {
+      const dropdown = document.getElementById("city-dropdown");
+      const input = document.getElementById("city-search-input");
+      if (!dropdown.contains(e.target) && e.target !== input) {
+        dropdown.classList.add("hidden");
+      }
+    });
+
+    // -------------------------------------------------------------
+    // Slider & Number Synchronization
+    // -------------------------------------------------------------
+    function syncSlider(id, val) {
+      const slider = document.getElementById(`range-${id}`);
+      if (slider) slider.value = val;
+      triggerCalculation();
+    }
+
+    function syncNumber(id, val) {
+      const num = document.getElementById(`num-${id}`);
+      if (num) num.value = val;
+      triggerCalculation();
+    }
+
+    function resetToDefaults() {
+      selectCity(activeCity || "Delhi");
+    }
+
+    // -------------------------------------------------------------
+    // Chart.js Sub-Index Visualization
+    // -------------------------------------------------------------
+    function initSubindexChart() {
+      const ctx = document.getElementById("subindexChart");
+      if (!ctx) return;
+      subindexChart = new Chart(ctx, {
+        type: "bar",
+        data: {
+          labels: ["PM2.5", "PM10", "NO2", "NH3", "SO2", "CO", "O3"],
+          datasets: [{
+            label: "CPCB Sub-Index",
+            data: [0, 0, 0, 0, 0, 0, 0],
+            backgroundColor: ["#10b981", "#10b981", "#10b981", "#10b981", "#10b981", "#10b981", "#10b981"],
+            borderRadius: 6
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false }
+          },
+          scales: {
+            y: {
+              beginAtZero: true,
+              max: 500,
+              grid: { color: "#1e293b" },
+              ticks: { color: "#64748b", font: { size: 10 } }
+            },
+            x: {
+              grid: { display: false },
+              ticks: { color: "#94a3b8", font: { size: 11, weight: "bold" } }
+            }
+          }
+        }
+      });
+    }
+
+    function updateSubindexChart(subindices) {
+      if (!subindexChart) return;
+      const labels = ["PM2.5", "PM10", "NO2", "NH3", "SO2", "CO", "O3"];
+      const data = labels.map(k => subindices[k] || 0);
+
+      const colors = data.map(val => {
+        if (val <= 50) return "#10b981";
+        if (val <= 100) return "#84cc16";
+        if (val <= 200) return "#f59e0b";
+        if (val <= 300) return "#f97316";
+        if (val <= 400) return "#ef4444";
+        return "#881337";
+      });
+
+      subindexChart.data.datasets[0].data = data;
+      subindexChart.data.datasets[0].backgroundColor = colors;
+      subindexChart.update();
+    }
+
+    // -------------------------------------------------------------
+    // App Initialization
+    // -------------------------------------------------------------
+    document.addEventListener("DOMContentLoaded", async () => {
+      lucide.createIcons();
+      initSubindexChart();
+      const connected = await checkBackendConnection();
+      if (connected) {
+        selectCity("Delhi");
+      }
+    });
+  </script>
+</body>
+</html>
